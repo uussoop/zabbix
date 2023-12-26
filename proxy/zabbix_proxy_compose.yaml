@@ -1,0 +1,130 @@
+version: '3.5'
+services:
+  mysql-server:
+    image: mysql:8.0-debian
+    command:
+      - mysqld
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_bin
+      - --skip-character-set-client-handshake
+      - --default-authentication-plugin=mysql_native_password
+      - --disable-log-bin
+
+    volumes:
+      - ./zbx_env/var/lib/mysql:/var/lib/mysql:rw
+    env_file:
+      - ./env_vars/.env_db_mysql_proxy
+
+    stop_grace_period: 1m
+    networks:
+      zbx_net_backend:
+        ipv4_address: 172.16.239.101
+      # aliases:
+      #   - mysql-server
+      #   - zabbix-database
+      #   - mysql-database
+
+  zabbix-proxy-mysql:
+    image: zabbix/zabbix-proxy-mysql:alpine-6.0-latest
+    ports:
+      - "10051:10051"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro 
+      - ./zbx_env/usr/lib/zabbix/externalscripts:/usr/lib/zabbix/externalscripts:ro
+      - ./zbx_env/var/lib/zabbix/modules:/var/lib/zabbix/modules:ro
+      - ./zbx_env/var/lib/zabbix/enc:/var/lib/zabbix/enc:ro
+      - ./zbx_env/var/lib/zabbix/ssh_keys:/var/lib/zabbix/ssh_keys:ro
+      - ./zbx_env/var/lib/zabbix/mibs:/var/lib/zabbix/mibs:ro
+      # - snmptraps:/var/lib/zabbix/snmptraps:rw
+    
+    env_file:
+      - ./env_vars/.env_db_mysql_proxy
+      - ./env_vars/.env_prx
+      - ./env_vars/.env_prx_mysql
+
+    depends_on:
+      - mysql-server
+      - zabbix-java-gateway
+      # - zabbix-snmptraps
+    networks:
+      zbx_net_backend:
+        ipv4_address: 172.16.239.103
+        # aliases:
+        #   - zabbix-proxy-mysql
+        #   - zabbix-proxy-alpine-mysql
+        #   - zabbix-proxy-mysql-alpine
+      zbx_net_frontend:
+        ipv4_address: 172.16.238.102
+
+    stop_grace_period: 30s
+    labels:
+      com.zabbix.description: "Zabbix proxy with MySQL database support"
+      com.zabbix.company: "Zabbix LLC"
+      com.zabbix.component: "zabbix-proxy"
+      com.zabbix.dbtype: "mysql"
+      com.zabbix.os: "alpine"
+
+  # zabbix-snmptraps:
+  #   image: zabbix/zabbix-snmptraps:alpine-6.0-latest
+  #   profiles:
+  #     - full
+  #     - all
+  #   ports:
+  #     - "162:1162/udp"
+  #   volumes:
+  #     - snmptraps:/var/lib/zabbix/snmptraps:rw
+    
+  #   networks:
+  #     zbx_net_frontend:
+  #       ipv4_address: 172.16.238.101
+  #     # aliases:
+  #     #   - zabbix-snmptraps
+  #     zbx_net_backend:
+  #       ipv4_address: 172.16.239.102
+  #   stop_grace_period: 5s
+  #   labels:
+  #     com.zabbix.description: "Zabbix snmptraps"
+  #     com.zabbix.company: "Zabbix LLC"
+  #     com.zabbix.component: "snmptraps"
+  #     com.zabbix.os: "alpine"
+
+
+  zabbix-java-gateway:
+    image: zabbix/zabbix-java-gateway:alpine-6.0-latest
+    networks:
+      zbx_net_backend:
+        ipv4_address: 172.16.239.104
+    ports:
+      - 10052:10052
+  zabbix-agent:   
+    image: zabbix/zabbix-agent:alpine-6.0-latest
+    privileged: true 
+    # network_mode: "host"
+    restart: unless-stopped
+    env_file:
+      - ./env_vars/.env_agent
+    networks:
+      zbx_net_backend:
+        ipv4_address: 172.16.239.105
+      zbx_net_frontend:
+    ports:
+      - "10050:10050"
+networks:
+  zbx_net_frontend:
+    driver: bridge
+    driver_opts:
+      com.docker.network.enable_ipv6: "false"
+    ipam:
+      driver: default
+      config:
+      - subnet: 172.16.238.0/24
+  zbx_net_backend:
+    driver: bridge
+    driver_opts:
+      com.docker.network.enable_ipv6: "false"
+    internal: true
+    ipam:
+      driver: default
+      config:
+      - subnet: 172.16.239.0/24
